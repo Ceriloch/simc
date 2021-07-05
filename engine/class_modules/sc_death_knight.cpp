@@ -31,6 +31,7 @@
 
 #include "simulationcraft.hpp"
 #include "player/pet_spawner.hpp"
+#include "action/action_callback.hpp"
 #include "class_modules/apl/apl_death_knight.hpp"
 
 namespace { // UNNAMED NAMESPACE
@@ -863,12 +864,17 @@ public:
     spawner::pet_spawner_t<pets::magus_pet_t, death_knight_t> magus_of_the_dead;
     spawner::pet_spawner_t<pets::reanimated_shambler_pet_t, death_knight_t> reanimated_shambler;
 
+    pet_t* bron;
+
     pets_t( death_knight_t* p ) :
       army_ghouls( "army_ghoul", p ),
       apoc_ghouls( "apoc_ghoul", p ),
       bloodworms( "bloodworm", p ),
       magus_of_the_dead( "magus_of_the_dead", p ),
-      reanimated_shambler( "reanimated_shambler", p )
+      reanimated_shambler( "reanimated_shambler", p ),
+
+      // Bron's Call to Arms trigger logic is completely overridden by the DK Module
+      bron( nullptr )
     {}
   } pets;
 
@@ -1045,6 +1051,8 @@ public:
   void      init_spells() override;
   void      init_action_list() override;
   void      init_rng() override;
+  void      init_special_effects() override;
+  void      init_special_effect( special_effect_t& effect ) override;
   void      init_base_stats() override;
   void      init_scaling() override;
   void      create_buffs() override;
@@ -2712,6 +2720,9 @@ struct death_knight_action_t : public Base
 
   bool triggers_shackle_the_unworthy;
 
+  bool may_proc_bron;
+  proc_t* bron_proc;
+
   struct affected_by_t
   {
     // Masteries
@@ -2724,7 +2735,9 @@ struct death_knight_action_t : public Base
     action_base_t( n, p, s ), gain( nullptr ),
     hasted_gcd( false ),
     triggers_shackle_the_unworthy( false ),
-    affected_by()
+    affected_by(),
+    may_proc_bron( false ),
+    bron_proc( nullptr )
   {
     this -> may_crit   = true;
     this -> may_glance = false;
@@ -2762,6 +2775,12 @@ struct death_knight_action_t : public Base
         this -> base_dd_multiplier *= 1.0 + p -> spec.might_of_the_frozen_wastes -> effectN( 2 ).percent();
       }
     }
+  }
+
+  std::string full_name() const
+  {
+    std::string n = action_base_t::data().name_cstr();
+    return n.empty() ? action_base_t::name_str : n;
   }
 
   death_knight_t* p() const
@@ -2841,6 +2860,16 @@ struct death_knight_action_t : public Base
      return c;
   }
 
+  void init() override
+  {
+    action_base_t::init();
+
+    may_proc_bron = !this->background &&
+      ( this->spell_power_mod.direct || this->spell_power_mod.tick ||
+        this->attack_power_mod.direct || this->attack_power_mod.tick ||
+        this->base_dd_min || this->base_dd_max || this->base_td );
+  }
+
   void init_finished() override
   {
     action_base_t::init_finished();
@@ -2859,6 +2888,11 @@ struct death_knight_action_t : public Base
     if ( this -> data().affected_by( p() -> spec.death_knight -> effectN( 2 ) ) )
     {
       this -> gcd_type = gcd_haste_type::ATTACK_HASTE;
+    }
+
+    if ( may_proc_bron )
+    {
+      bron_proc = p()->get_proc( std::string( "Bron's Call to Action: " ) + full_name() );
     }
   }
 
@@ -3600,6 +3634,12 @@ struct army_of_the_dead_t : public death_knight_spell_t
     harmful = false;
   }
 
+  void init() override
+  {
+    death_knight_spell_t::init();
+    may_proc_bron = true;
+  }
+
   void init_finished() override
   {
     death_knight_spell_t::init_finished();
@@ -4283,6 +4323,12 @@ struct dark_transformation_t : public death_knight_spell_t
         p() -> buffs.frenzied_monstrosity -> trigger();
       }
     }
+  }
+
+  void init() override
+  {
+    death_knight_spell_t::init();
+    may_proc_bron = true;
   }
 
   bool ready() override
@@ -6373,6 +6419,12 @@ struct summon_gargoyle_t : public death_knight_spell_t
     harmful = false;
   }
 
+  void init() override
+  {
+    death_knight_spell_t::init();
+    may_proc_bron = true;
+  }
+
   void execute() override
   {
     death_knight_spell_t::execute();
@@ -6582,6 +6634,13 @@ struct unholy_blight_t : public death_knight_spell_t
 
     p() -> buffs.unholy_blight -> trigger();
   }
+
+  void init() override
+  {
+    death_knight_spell_t::init();
+    may_proc_bron = true;
+  }
+
 };
 
 // Unholy Assault ============================================================
@@ -8065,6 +8124,90 @@ void death_knight_t::init_rng()
   rppm.runic_attenuation = get_rppm( "runic_attenuation", talent.runic_attenuation );
 }
 
+// death_knight_t::init_special_effects =====================================
+void death_knight_t::init_special_effects()
+{
+  player_t::init_special_effects();
+  // Custom trigger condition for Bron's Call to Arms. Completely overrides the trigger
+  // behavior of the generic proc to get control back to the Shaman class module in terms
+  // of what triggers it.
+  //
+  // 2021-07-04 Eligible spells that can proc Bron's Call to Arms:
+  // - Any foreground amount spell / attack
+  //
+  // Note, also has to handle the ICD and pet-related trigger conditions.
+  callbacks.register_callback_trigger_function( 333950, callback_trigger_fn_type::TRIGGER,
+      [this]( const action_callback_t* cb, action_t* a, action_state_t* ) {
+      auto proc = debug_cast<const dbc_proc_callback_t*>( cb );
+      if ( proc->cooldown->down() )
+      {
+        return false;
+      }
+
+      // Defer finding the bron pet until the first proc attempt
+      if ( !pets.bron )
+      {
+        pets.bron = find_pet( "bron" );
+        assert( pets.bron );
+      }
+
+      if ( pets.bron->is_active() )
+      {
+        return false;
+      }
+
+      if ( a->type == ACTION_ATTACK )
+      {
+        auto attack = dynamic_cast<death_knight_melee_attack_t*>( a );
+        if ( attack && attack->may_proc_bron )
+        {
+          attack->bron_proc->occur();
+          return true;
+        }
+      }
+      else if ( a->type == ACTION_HEAL )
+      {
+        auto heal = dynamic_cast<death_knight_heal_t*>( a );
+        if ( heal && heal->may_proc_bron )
+        {
+          heal->bron_proc->occur();
+          return true;
+        }
+      }
+      else if ( a->type == ACTION_SPELL )
+      {
+        auto spell = dynamic_cast<death_knight_spell_t*>( a );
+        if ( spell && spell->may_proc_bron )
+        {
+          spell->bron_proc->occur();
+          return true;
+        }
+      }
+
+      return false;
+  } );
+}
+
+// death_knight_t::init_special_effect ============================================
+
+void death_knight_t::init_special_effect( special_effect_t& effect )
+{
+  switch ( effect.driver()->id() )
+  {
+    // Bron's Call to Arms
+    //
+    // Death Knight module has custom triggering logic (defined above) so override the initial
+    // proc flags so we get wider trigger attempts than the core implementation. The
+    // overridden proc condition above will take care of filtering out actions that are
+    // not allowed to proc it.
+    case 333950:
+      effect.proc_flags2_ |= PF2_CAST;
+      break;
+    default:
+      break;
+  }
+}
+
 // death_knight_t::init_base ================================================
 
 void death_knight_t::init_base_stats()
@@ -9115,7 +9258,7 @@ double death_knight_t::composite_player_target_pet_damage_multiplier( player_t* 
 {
   double m = player_t::composite_player_target_pet_damage_multiplier( target, guardian );
 
-  const death_knight_td_t* td = get_target_data( target );
+  const death_knight_td_t* td = find_target_data( target );
 
   if ( td )
     m *= 1.0 + td -> debuff.unholy_blight -> stack_value();
