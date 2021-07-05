@@ -4713,6 +4713,12 @@ struct death_coil_t : public death_knight_spell_t
     return cost;
   }
 
+  void init() override
+  {
+    death_knight_spell_t::init();
+    may_proc_bron = true;
+  }
+
   void execute() override
   {
     death_knight_spell_t::execute();
