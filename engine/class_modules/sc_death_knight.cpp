@@ -2735,9 +2735,9 @@ struct death_knight_action_t : public Base
     action_base_t( n, p, s ), gain( nullptr ),
     hasted_gcd( false ),
     triggers_shackle_the_unworthy( false ),
-    affected_by(),
     may_proc_bron( false ),
-    bron_proc( nullptr )
+    bron_proc( nullptr ),
+    affected_by()
   {
     this -> may_crit   = true;
     this -> may_glance = false;
