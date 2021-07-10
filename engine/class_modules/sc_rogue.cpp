@@ -1697,13 +1697,10 @@ public:
       if ( p()->legendary.toxic_onslaught->ok() )
       {
         // 2021-04-22 - Appears to select randomly from the three cooldowns, not spec-specific
-        // TOCHECK: Currently on PTR does not extend but straight overrides the duration
+        // 2021-07-09: Extends duration now instead of overriding it in case of the existing cooldown proccing.
         const timespan_t trigger_duration = p()->legendary.toxic_onslaught->effectN( 1 ).time_value();
         std::vector<buff_t*> buffs = { p()->get_target_data( ab::target )->debuffs.vendetta, p()->buffs.adrenaline_rush, p()->buffs.shadow_blades };
-        if ( p()->bugs )
-          buffs[ p()->sim->rng().range( buffs.size() ) ]->trigger( trigger_duration );
-        else
-          buffs[ p()->sim->rng().range( buffs.size() ) ]->extend_duration_or_trigger( trigger_duration );
+        buffs[ p()->sim->rng().range( buffs.size() ) ]->extend_duration_or_trigger( trigger_duration );
       }
     }
 
@@ -4597,11 +4594,12 @@ struct serrated_bone_spike_t : public rogue_attack_t
     rogue_attack_t( name, p, p->covenant.serrated_bone_spike, options_str )
   {
     // Combo Point generation is in a secondary spell due to scripting logic
-    // TOCHECK: Still not affected by Shadow Blades on beta
+    // 07/09/2021 - Not in the whitelist but confirmed as working in-game as of 9.1 patch notes
+    affected_by.shadow_blades_cp = true;
     affected_by.broadside_cp = true;
     energize_type = action_energize::ON_HIT;
     energize_resource = RESOURCE_COMBO_POINT;
-    energize_amount = 0.0; // Not done on execute but we keep the other energize settings for things like Dreadblades or Broadside
+    energize_amount = 0.0; // Not done on execute but we keep the ON_HIT energize for Dreadblades/Broadside/Shadow Blades
     base_impact_cp = as<int>( p->find_spell( 328548 )->effectN( 1 ).base_value() );
 
     serrated_bone_spike_dot = p->get_background_action<serrated_bone_spike_dot_t>( "serrated_bone_spike_dot" );
@@ -6941,7 +6939,7 @@ void rogue_t::init_action_list()
     action_priority_list_t* build = get_action_priority_list( "build", "Builders" );
     build->add_action( this, "Shiv", "if=!talent.nightstalker.enabled&runeforge.tiny_toxic_blade&spell_targets.shuriken_storm<5" );
     build->add_action( this, "Shuriken Storm", "if=spell_targets>=2&(!covenant.necrolord|cooldown.serrated_bone_spike.max_charges-charges_fractional>=0.25|spell_targets.shuriken_storm>4)" );
-    build->add_action( "serrated_bone_spike,if=cooldown.serrated_bone_spike.max_charges-charges_fractional<=0.25|soulbind.lead_by_example.enabled&!buff.lead_by_example.up" );
+    build->add_action( "serrated_bone_spike,if=cooldown.serrated_bone_spike.max_charges-charges_fractional<=0.25|soulbind.lead_by_example.enabled&!buff.lead_by_example.up|soulbind.kevins_oozeling.enabled&!debuff.kevins_wrath.up" );
     build->add_talent( this, "Gloomblade" );
     build->add_action( this, "Backstab" );
   }
