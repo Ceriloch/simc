@@ -9418,11 +9418,34 @@ struct death_knight_module_t : public module_t {
     unique_gear::register_special_effect( 334836, runeforge::reanimated_shambler );
   }
 
-  /*
   void register_hotfixes() const override
   {
-
-  }*/
+    hotfix::register_spell( "Death Knight", "2021-07-08", "Kyrian - Final Sentence: Damage per stack increased to 3% to 15% (was 2% to 10%), and duration increased to 18 seconds (was 10 seconds). Duration", 353823 )
+      .field( "duration" )
+      .operation( hotfix::HOTFIX_SET )
+      .modifier( 18000 )
+      .verification_value( 10000 );
+    hotfix::register_effect( "Death Knight", "2021-07-08", "Kyrian - Final Sentence: Damage per stack increased to 3% to 15% (was 2% to 10%), and duration increased to 18 seconds (was 10 seconds). Effect #2", 885853 )
+      .field( "base_value" )
+      .operation( hotfix::HOTFIX_SET )
+      .modifier( 3 )
+      .verification_value( 2 );
+    hotfix::register_effect( "Death Knight", "2021-07-08", "Kyrian - Final Sentence: Damage per stack increased to 3% to 15% (was 2% to 10%), and duration increased to 18 seconds (was 10 seconds). Effect #3", 892253 )
+      .field( "base_value" )
+      .operation( hotfix::HOTFIX_SET )
+      .modifier( 3 )
+      .verification_value( 2 );
+    hotfix::register_effect( "Death Knight", "2021-07-08", "Night Fae - Rampant Transference: Strength gain increased to 2% per stack (was 1% per stack). Effect #1", 885926 )
+      .field( "base_value" )
+      .operation( hotfix::HOTFIX_SET )
+      .modifier( 2 )
+      .verification_value( 1 );
+    hotfix::register_effect( "Death Knight", "2021-07-08", "Venthyr - Insatiable Hunger: Base damage increased by 12%. Base Damage", 885673 )
+      .field( "ap_coefficient" )
+      .operation( hotfix::HOTFIX_MUL )
+      .modifier( 1.12 )
+      .verification_value( 0.77160 );
+  }
 
   void init( player_t* ) const override {}
   bool valid() const override { return true; }
